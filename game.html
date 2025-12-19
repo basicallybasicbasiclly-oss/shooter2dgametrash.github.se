@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Full Game</title>
+<style>
+body { margin: 0; overflow: hidden; background-color: darkblue; }
+#startscreen, #gameoverScreen {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 400px;
+    height: 300px;
+    background-color: rgba(0,0,0,0.7);
+    border: 2px solid white;
+    text-align: center;
+    padding-top: 50px;
+    color: white;
+    font-size: 24px;
+    z-index: 100;
+}
+#gameoverScreen { visibility: hidden; }
+#startButton, #restartButton { font-size: 24px; padding: 10px 20px; border-radius: 10px; background-color: green; color: white; border: none; cursor: pointer; margin-top: 20px; }
+#startButton:hover, #restartButton:hover { background-color: darkgreen; }
+#uiPlatform {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 300px;
+    height: 600px;
+    background-color: rgba(0,0,0,0.5);
+    border: 2px solid white;
+    z-index: 100;
+    visibility: hidden;
+}
+#adbutton {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 20px;
+    padding: 8px 16px;
+    border-radius: 8px;
+    background-color: orange;
+    color: white;
+    border: none;
+    cursor: pointer;
+}
+#upgrade1, #upgrade2, #upgrade3, #upgrade4 {
+    font-size: 24px;
+    padding: 10px 20px;
+    border-radius: 10px;
+    background-color: green;
+    color: white;
+    border: none;
+    cursor: pointer;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 200px;
+    height: 60px;
+}
+#upgrade1, #upgrade2, #upgrade3, #upgrade4:hover { background-color: darkgreen; }
+#upgrade1 { top: 5%; }
+#upgrade2 { top: 25%; }
+#upgrade3 { top: 45%; }
+#upgrade4 { top: 65%; }
+
+#player { width: 50px; height: 50px; background-color: green; position: absolute; border-radius: 50%; }
+.player-health, .enemy-health { position: absolute; height: 6px; background-color: red; }
+.bullet { width: 10px; height: 10px; background-color: yellow; position: absolute; }
+.enemy { width: 50px; height: 50px; background-color: red; position: absolute; border-radius: 0%; }
+
+#adBanner {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 50px;
+    background-color: #333;
+    color: white;
+    text-align: center;
+    line-height: 50px;
+    font-size: 20px;
+}
+</style>
+</head>
+<body>
+
+<div id="uiPlatform">
+    <button id="upgrade1">Speed</button>
+    <button id="upgrade2">Health</button>
+    <button id="upgrade3">bps</button>
+    <button id="upgrade4">damage</button>
+</div>
+
+<div id="player"></div>
+
+<div id="gameoverScreen">
+    <h2>Game Over</h2>
+    <button id="restartButton">Restart</button>
+    <button id="adbutton">Ad->revive</button>
+</div>
+
+<div id="startscreen">
+    <h2>Welcome to the Game</h2>
+    <button id="startButton">Start Game</button>
+</div>
+
+<div id="enemyCounter" style="position:absolute; top:10px; left:10px; color:white; font-size:20px;">Enemies: 0</div>
+
+<div id="adBanner">Your Ad Banner Here | Revives left: 3</div>
+
+<script>
+// --- Game variables ---
+let playerspeed = 5;
+let playerhealth = 100;
+let playermaxhealth = 100;
+let bullets = [];
+let shooting = false;
+let shootInterval;
+let moveVector = { dx: 0, dy: 1 };
+let bps = 250;
+let damage = 10;
+let enemies = [];
+let wave = 0;
+let enemyBullets = [];
+let maxrevives = 3;
+let revives = maxrevives;
+
+// --- Player object ---
+let player = { x: window.innerWidth/2, y: window.innerHeight/2 };
+
+// --- Daily revive tracking ---
+const today = new Date().toISOString().slice(0,10);
+const savedDate = localStorage.getItem("reviveDate");
+if(savedDate !== today){
+    revives = maxrevives;
+    localStorage.setItem("reviveDate", today);
+    localStorage.setItem("revivesLeft", revives);
+}else{
+    revives = parseInt(localStorage.getItem("revivesLeft")) || maxrevives;
+}
+
+// --- Key tracking ---
+let keys = {};
+document.addEventListener("keydown", e => keys[e.key] = true);
+document.addEventListener("keyup", e => keys[e.key] = false);
+
+// --- Shooting ---
+document.addEventListener("keydown", e => {
+    if (e.key === "f" && !shooting) {
+        shooting = true;
+        shootInterval = setInterval(() => {
+            bullets.push({ x: player.x + 20, y: player.y + 20, speed: 10, dx: moveVector.dx, dy: moveVector.dy, damage });
+        }, bps);
+    }
+});
+document.addEventListener("keyup", e => {
+    if (e.key === "f") { shooting = false; clearInterval(shootInterval); }
+});
+
+// --- Update player ---
+function updatePlayer() {
+    let dx = 0, dy = 0;
+    if(keys["w"]) dy -=1; if(keys["s"]) dy +=1;
+    if(keys["a"]) dx -=1; if(keys["d"]) dx +=1;
+    if(dx !==0 && dy !==0){ dx*=Math.SQRT1_2; dy*=Math.SQRT1_2; }
+    player.x += dx*playerspeed;
+    player.y += dy*playerspeed;
+    if(dx!==0||dy!==0){ moveVector.dx = dx; moveVector.dy = dy; }
+}
+
+// --- Draw player ---
+function drawPlayer(){
+    const p = document.getElementById("player");
+    p.style.left = player.x + "px";
+    p.style.top = player.y + "px";
+
+    let healthBar = document.querySelector(".player-health");
+    if(!healthBar){
+        healthBar = document.createElement("div");
+        healthBar.classList.add("player-health");
+        document.body.appendChild(healthBar);
+    }
+    healthBar.style.left = player.x + "px";
+    healthBar.style.top = player.y - 10 + "px";
+    healthBar.style.width = (50*(playerhealth/playermaxhealth)) + "px";
+}
+
+// --- Update bullets ---
+function updateBullets(){
+    const area = document.body;
+    area.querySelectorAll(".bullet").forEach(b=>b.remove());
+
+    bullets.forEach((b,i)=>{
+        b.x += b.dx*b.speed;
+        b.y += b.dy*b.speed;
+        if(b.x<0||b.x>window.innerWidth||b.y<0||b.y>window.innerHeight){ bullets.splice(i,1); return; }
+        const div = document.createElement("div");
+        div.classList.add("bullet");
+        div.style.left=b.x+"px"; div.style.top=b.y+"px";
+        area.appendChild(div);
+    });
+
+    // enemy bullets
+    enemyBullets.forEach((b,i)=>{
+        b.x += b.dx*b.speed; b.y += b.dy*b.speed;
+        if(b.x<0||b.x>window.innerWidth||b.y<0||b.y>window.innerHeight){ enemyBullets.splice(i,1); return; }
+        const div = document.createElement("div");
+        div.classList.add("bullet");
+        div.style.backgroundColor="orange";
+        div.style.left=b.x+"px"; div.style.top=b.y+"px";
+        area.appendChild(div);
+        if(b.x > player.x && b.x < player.x + 50 && b.y > player.y && b.y < player.y + 50){
+            playerhealth -= 10;
+            enemyBullets.splice(i,1);
+        }
+    });
+}
+
+// --- Random enemy spawning ---
+function spawnEnemies(count){
+    for(let i=0;i<count;i++){
+        let type = Math.random()<0.6?"melee":"turret";
+        enemies.push({
+            x: Math.random()*(window.innerWidth-50),
+            y: Math.random()*(window.innerHeight-50),
+            width:50,
+            height:50,
+            health: type==="melee"?20:30,
+            type,
+            shootCooldown: 0
+        });
+    }
+}
+
+// --- Draw enemies ---
+function drawEnemies(){
+    const area = document.body;
+    area.querySelectorAll(".enemy").forEach(e=>e.remove());
+    area.querySelectorAll(".enemy-health").forEach(e=>e.remove());
+
+    enemies.forEach((e,i)=>{
+        const div = document.createElement("div");
+        div.classList.add("enemy");
+        div.style.left=e.x+"px"; div.style.top=e.y+"px";
+        div.style.width=e.width+"px"; div.style.height=e.height+"px";
+        area.appendChild(div);
+
+        const healthBar = document.createElement("div");
+        healthBar.classList.add("enemy-health");
+        healthBar.style.left = e.x + "px";
+        healthBar.style.top = e.y - 10 + "px";
+        healthBar.style.width = (e.width*(e.health/(e.type==="melee"?20:30))) + "px";
+        area.appendChild(healthBar);
+
+        if(e.type==="melee"){
+            let dx = player.x - e.x; let dy = player.y - e.y;
+            let dist = Math.sqrt(dx*dx + dy*dy);
+            e.x += dx/dist*1.5; e.y += dy/dist*1.5;
+        } else if(e.type==="turret"){
+            e.shootCooldown -= 1;
+            if(e.shootCooldown<=0){
+                let dx = player.x - e.x; let dy = player.y - e.y;
+                let dist = Math.sqrt(dx*dx+dy*dy);
+                enemyBullets.push({x:e.x+25,y:e.y+25,dx:dx/dist,dy:dy/dist,speed:5});
+                e.shootCooldown = 60;
+            }
+        }
+
+        bullets.forEach((b,j)=>{
+            if(b.x>e.x && b.x<e.x+50 && b.y>e.y && b.y<e.y+50){
+                e.health -= b.damage;
+                bullets.splice(j,1);
+            }
+        });
+
+        if(e.health<=0){ enemies.splice(i,1); }
+    });
+}
+
+// --- Upgrade buttons ---
+const uiPlatform = document.getElementById('uiPlatform');
+document.getElementById("upgrade1").addEventListener("click",()=>{ playerspeed+=1; uiPlatform.style.visibility="hidden"; alert("Player speed is now: "+playerspeed); });
+document.getElementById("upgrade2").addEventListener("click",()=>{ playermaxhealth+=20; playerhealth+=20; uiPlatform.style.visibility="hidden"; alert("Player max health is now: "+playermaxhealth); });
+document.getElementById("upgrade3").addEventListener("click",()=>{ if(bps>50)bps-=50; uiPlatform.style.visibility="hidden"; alert("Bullets per second is now: "+(1000/bps).toFixed(2)); });
+document.getElementById("upgrade4").addEventListener("click",()=>{ damage+=5; uiPlatform.style.visibility="hidden"; alert("Damage is now: "+damage); });
+
+// --- Start / restart buttons ---
+document.getElementById("startButton").addEventListener("click",()=>{ document.getElementById("startscreen").style.visibility="hidden"; startWave(); });
+document.getElementById("restartButton").addEventListener("click",()=>{ location.reload(); });
+
+// --- Ad revive button ---
+const reviveButton = document.getElementById("adbutton");
+reviveButton.addEventListener("click",()=>{
+    if(revives>0){
+        revives--;
+        localStorage.setItem("revivesLeft", revives);
+        playerhealth = playermaxhealth;
+        document.getElementById("gameoverScreen").style.visibility="hidden";
+        uiPlatform.style.visibility="visible";
+    }else{
+        alert("No revives left today!");
+    }
+});
+
+// --- Update ad banner ---
+const adBanner = document.getElementById("adBanner");
+function updateAdBanner(){
+    adBanner.innerText = `Your Ad Banner Here | Revives left: ${revives}`;
+}
+
+// --- Start wave ---
+function startWave(){
+    wave+=1;
+    playerhealth = playermaxhealth;
+    spawnEnemies(wave*5);
+    uiPlatform.style.visibility="visible";
+}
+
+// --- Game loop ---
+function gameLoop(){
+    updatePlayer();
+    updateBullets();
+    drawPlayer();
+    drawEnemies();
+
+    if(playerhealth<=0){ document.getElementById("gameoverScreen").style.visibility="visible"; }
+    if(enemies.length === 0){ uiPlatform.style.visibility="visible"; setTimeout(() => {
+  console.log("This runs after 2 seconds");
+}, 2000); startWave(); }
+
+    document.getElementById("enemyCounter").innerText = "Enemies: " + enemies.length;
+    updateAdBanner();
+const username = localStorage.getItem("revivesLeft");
+if (playerhealth <= 0) {
+    bps = 0;
+    speed = 0;
+    requestAnimationFrame(gameLoop);
+    if (Date.now() - record.timestamp > ONE_DAY) {
+  store.delete(record.id);
+}
+}
+}
+
+gameLoop();
+</script>
+</body>
+</html>
+
